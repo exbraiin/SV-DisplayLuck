@@ -1,0 +1,10 @@
+{
+  "Name": "Display Luck",
+  "Author": "ExBrain",
+  "Version": "1.0.0",
+  "Description": "A Mod to display the player luck",
+  "UniqueID": "exbrain.displayluck",
+  "EntryDll": "DisplayLuck.dll",
+  "MinimumApiVersion": "3.0.0",
+  "UpdateKeys": []
+}
