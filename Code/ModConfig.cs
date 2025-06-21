@@ -25,7 +25,9 @@ internal sealed class ModConfig
 
     public bool ShowSkillMissingXp { get; set; } = false;
 
-    public bool ShareSkillXp { get; set; } = false;
+    public int SkillsMultiplier { get; set; } = 1;
+
+    public int FriendshipMultiplier { get; set; } = 1;
 
     public static void CreateMenu(IModHelper helper, IManifest manifest, Func<ModConfig> getConfig, Action<ModConfig> setConfig)
     {
@@ -43,13 +45,6 @@ internal sealed class ModConfig
             tooltip: () => "Whether to show missing skills XP or not.",
             getValue: () => getConfig().ShowSkillMissingXp,
             setValue: (value) => getConfig().ShowSkillMissingXp = value
-        );
-        configMenu.AddBoolOption(
-            mod: manifest,
-            name: () => "Share Skills XP",
-            tooltip: () => "Whether the xp of skills is shared between them.",
-            getValue: () => getConfig().ShareSkillXp,
-            setValue: (value) => getConfig().ShareSkillXp = value
         );
         configMenu.AddKeybind(
             mod: manifest,
@@ -102,6 +97,23 @@ internal sealed class ModConfig
             min: 0,
             max: 100
         );
-
+        configMenu.AddNumberOption(
+           mod: manifest,
+           name: () => "Skills Multiplier",
+           tooltip: () => "Multiplies the amount of gained skill xp by this value",
+           getValue: () => getConfig().SkillsMultiplier,
+           setValue: (value) => getConfig().SkillsMultiplier = value,
+           min: 1,
+           max: 100
+       );
+        configMenu.AddNumberOption(
+            mod: manifest,
+            name: () => "Friendship Multiplier",
+            tooltip: () => "Multiplies the amount of gained friendship by this value",
+            getValue: () => getConfig().FriendshipMultiplier,
+            setValue: (value) => getConfig().FriendshipMultiplier = value,
+            min: 1,
+            max: 100
+        );
     }
 }

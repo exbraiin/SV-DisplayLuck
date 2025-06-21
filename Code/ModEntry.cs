@@ -6,6 +6,8 @@ using StardewModdingAPI.Enums;
 using StardewModdingAPI.Events;
 using StardewModdingAPI.Utilities;
 using StardewValley;
+using StardewValley.Buffs;
+using StardewValley.GameData.Buffs;
 using StardewValley.GameData.Characters;
 using StardewValley.Menus;
 using StardewValley.Objects;
@@ -15,8 +17,6 @@ namespace Exbrain.DisplayLuck;
 
 internal sealed class ModEntry : Mod
 {
-    private const int FARMER_SKILLS = 5;
-
     private const string SPECIAL_QUEST_EVENT_ID = "15389722";
     private const string SPECIAL_QI_QUEST_EVENT_ID = "10040609";
 
@@ -25,9 +25,10 @@ internal sealed class ModEntry : Mod
 
     private bool showInfo = false;
     private string textEvents = string.Empty;
-    private readonly int[] currentXp = new int[FARMER_SKILLS];
-    private readonly int[] missingXp = new int[FARMER_SKILLS];
     private readonly GameTime gameTimeZero = new GameTime();
+
+    private readonly SkillManager skillManager = new();
+    private readonly FriendshipManager friendshipManager = new();
 
     public override void Entry(IModHelper helper)
     {
@@ -38,9 +39,7 @@ internal sealed class ModEntry : Mod
         helper.Events.GameLoop.DayStarted += GameLoop_DayStarted;
         helper.Events.GameLoop.OneSecondUpdateTicked += GameLoop_OneSecondUpdateTicked;
         helper.Events.GameLoop.GameLaunched += GameLoop_GameLaunched;
-#if DEBUG
-        helper.Events.Display.MenuChanged += Display_MenuChanged;
-#endif
+        // helper.Events.Display.MenuChanged += Display_MenuChanged;
     }
 
     private void Display_MenuChanged(object? sender, MenuChangedEventArgs e)
@@ -85,6 +84,7 @@ internal sealed class ModEntry : Mod
         var eLayout = Game1.smallFont.MeasureString(events);
         totalSize += eLayout;
 
+        var missingXp = skillManager.missingXp;
         var w = 0f;
         if (_config.ShowSkillMissingXp)
         {
@@ -121,16 +121,19 @@ internal sealed class ModEntry : Mod
 
     private void GameLoop_SaveLoaded(object? sender, SaveLoadedEventArgs e)
     {
-        UpdateMissingXp();
-        for (var i = 0; i < FARMER_SKILLS; ++i)
-        {
-            currentXp[i] = Game1.player.experiencePoints[i];
-        }
+        skillManager.Init();
+        friendshipManager.Init();
     }
 
     private void GameLoop_DayStarted(object? sender, DayStartedEventArgs e)
     {
         textEvents = GenerateEventsText(_config);
+
+#if DEBUG
+        var data = new BuffAttributesData { Speed = 10 };
+        var buff = new Buff("drink", duration: -2, effects: new BuffEffects(data));
+        Game1.player.applyBuff(buff);
+#endif
     }
 
     private void GameLoop_OneSecondUpdateTicked(object? sender, OneSecondUpdateTickedEventArgs e)
@@ -138,9 +141,8 @@ internal sealed class ModEntry : Mod
         if (_config == null) return;
         if (!Context.IsWorldReady) return;
 
-
-        if (_config.ShowSkillMissingXp) UpdateMissingXp();
-        if (_config.ShareSkillXp) UpdateSharedSkillXp();
+        skillManager.Update(_config.SkillsMultiplier);
+        friendshipManager.Update(_config.FriendshipMultiplier);
     }
 
     private void Input_ButtonReleased(object? sender, ButtonReleasedEventArgs e)
@@ -304,39 +306,6 @@ internal sealed class ModEntry : Mod
         return builder.AppendLine().ToString();
     }
 
-    private void UpdateMissingXp()
-    {
-        for (var i = 0; i < FARMER_SKILLS; ++i)
-        {
-            var lvl = Game1.player.GetSkillLevel(i);
-            var lvlNext = Math.Min(lvl + 1, 10);
-            var lvlCap = Farmer.getBaseExperienceForLevel(lvlNext);
-
-            var lvlXp = Game1.player.experiencePoints[i];
-            var lvlXpMissing = Math.Max(0, lvlCap - lvlXp);
-
-            missingXp[i] = lvlXpMissing;
-        }
-    }
-
-    private void UpdateSharedSkillXp()
-    {
-        for (var i = 0; i < FARMER_SKILLS; ++i)
-        {
-            var xp = Game1.player.experiencePoints[i];
-            var gain = Math.Max(0, xp - currentXp[i]);
-            currentXp[i] = xp;
-
-            if (gain <= 0) continue;
-            for (var k = 0; k < FARMER_SKILLS; ++k)
-            {
-                if (i == k) continue;
-                Game1.player.gainExperience(k, gain);
-                currentXp[k] = Game1.player.experiencePoints[k];
-            }
-        }
-    }
-
     public static class Utils
     {
         public static void DrawBox(Rectangle box)
@@ -354,3 +323,78 @@ internal sealed class ModEntry : Mod
     }
 }
 
+public sealed class SkillManager
+{
+    private const int FARMER_SKILLS = 5;
+    public readonly int[] missingXp = new int[FARMER_SKILLS];
+    public readonly int[] currentXp = new int[FARMER_SKILLS];
+
+    public void Init()
+    {
+        Update(0);
+    }
+
+    public void Update(int multiplier)
+    {
+        ForEachSkill((skill, xp) =>
+        {
+            if (multiplier > 1)
+            {
+                var gain = Math.Max(0, xp - currentXp[skill]);
+                if (gain > 0)
+                {
+                    var toAdd = gain * (multiplier - 1);
+                    Game1.player.gainExperience(skill, toAdd);
+                }
+            }
+
+            var lvl = Game1.player.GetSkillLevel(skill);
+            var lvlNext = Math.Min(lvl + 1, 10);
+            var lvlCap = Farmer.getBaseExperienceForLevel(lvlNext);
+
+            var lvlXpCurrent = Game1.player.experiencePoints[skill];
+            var lvlXpMissing = Math.Max(0, lvlCap - lvlXpCurrent);
+
+            missingXp[skill] = lvlXpMissing;
+            currentXp[skill] = lvlXpCurrent;
+        });
+    }
+
+    private static void ForEachSkill(Action<int, int> action)
+    {
+        for (var i = 0; i < FARMER_SKILLS; ++i)
+            action(i, Game1.player.experiencePoints[i]);
+    }
+}
+
+public sealed class FriendshipManager
+{
+    private readonly Dictionary<string, int> currentPoints = new();
+
+    public void Init()
+    {
+        currentPoints.Clear();
+        Update(0);
+    }
+
+    public void Update(int multiplier)
+    {
+        ForEachPoint((name, points) =>
+        {
+            if (multiplier > 1 && currentPoints.TryGetValue(name, out int old) && points > old)
+            {
+                var gain = Math.Max(0, points - old);
+                var toAdd = gain * (multiplier - 1);
+                var npc = Game1.getCharacterFromName(name);
+                Game1.player.changeFriendship(toAdd, npc);
+            }
+            currentPoints[name] = Game1.player.friendshipData[name].Points;
+        });
+    }
+
+    private static void ForEachPoint(Action<string, int> action)
+    {
+        foreach (var data in Game1.player.friendshipData.Pairs)
+            action(data.Key, data.Value.Points);
+    }
+}
